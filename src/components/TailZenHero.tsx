@@ -5,12 +5,14 @@ import { ArrowRight, Github, Download, CheckCircle, AlertCircle } from "lucide-r
 import { useToast } from "@/components/ui/use-toast";
 import tailzenLogo from "@/assets/tailzen-logo.png";
 import JSZip from 'jszip';
+import { WordPressConverter } from '@/services/WordPressConverter';
 
 interface ConversionResult {
   success: boolean;
   downloadUrl?: string;
   themeName?: string;
   error?: string;
+  convertedFiles?: { [filename: string]: string };
 }
 
 const TailZenHero = () => {
@@ -35,23 +37,22 @@ const TailZenHero = () => {
     return null;
   };
 
-  const simulateConversion = async (repoInfo: { owner: string; repo: string }): Promise<ConversionResult> => {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
-    
-    // Simulate success/failure (90% success rate)
-    const success = Math.random() > 0.1;
-    
-    if (success) {
+  const convertRepository = async (repoInfo: { owner: string; repo: string }): Promise<ConversionResult> => {
+    try {
+      // Actually convert the repository using our service
+      const convertedTheme = await WordPressConverter.convertRepository(repoInfo.owner, repoInfo.repo);
+      
       return {
         success: true,
-        downloadUrl: `/themes/${repoInfo.owner}-${repoInfo.repo}-wp-theme.zip`,
-        themeName: `${repoInfo.repo.charAt(0).toUpperCase() + repoInfo.repo.slice(1)} WP Theme`
+        downloadUrl: `converted-theme-${Date.now()}.zip`,
+        themeName: convertedTheme.themeName,
+        convertedFiles: convertedTheme.files
       };
-    } else {
+    } catch (error) {
+      console.error('Conversion failed:', error);
       return {
         success: false,
-        error: "Unable to convert this repository. Please ensure it contains valid web assets."
+        error: error instanceof Error ? error.message : "Unable to convert this repository. Please ensure it contains valid web assets."
       };
     }
   };
@@ -89,7 +90,7 @@ const TailZenHero = () => {
     setConversionResult(null);
     
     try {
-      const result = await simulateConversion(repoInfo);
+      const result = await convertRepository(repoInfo);
       setConversionResult(result);
       
       if (result.success) {
@@ -127,95 +128,17 @@ const TailZenHero = () => {
       });
       
       try {
-        // Create a proper zip file with WordPress theme structure
+        // Create zip file with the actual converted theme files
         const zip = new JSZip();
         const repoInfo = extractRepoInfo(githubUrl);
         const themeName = repoInfo?.repo || 'theme';
         
-        // Add WordPress theme files
-        zip.file('style.css', `/*
-Theme Name: ${conversionResult.themeName}
-Description: WordPress theme converted from GitHub repository
-Version: 1.0.0
-Author: TailZen
-*/
-
-/* Your converted styles will be here */
-body {
-  font-family: Arial, sans-serif;
-  margin: 0;
-  padding: 0;
-}
-`);
-
-        zip.file('index.php', `<?php
-/**
- * ${conversionResult.themeName}
- * Converted by TailZen
- */
-
-get_header(); ?>
-
-<main id="main" class="site-main">
-    <?php if (have_posts()) : ?>
-        <?php while (have_posts()) : the_post(); ?>
-            <article id="post-<?php the_ID(); ?>" <?php post_class(); ?>>
-                <h1><?php the_title(); ?></h1>
-                <div class="entry-content">
-                    <?php the_content(); ?>
-                </div>
-            </article>
-        <?php endwhile; ?>
-    <?php endif; ?>
-</main>
-
-<?php get_footer(); ?>`);
-
-        zip.file('functions.php', `<?php
-/**
- * ${conversionResult.themeName} functions
- */
-
-// Theme setup
-function ${themeName}_setup() {
-    add_theme_support('title-tag');
-    add_theme_support('post-thumbnails');
-    add_theme_support('html5', array('search-form', 'comment-form', 'comment-list', 'gallery', 'caption'));
-}
-add_action('after_setup_theme', '${themeName}_setup');
-
-// Enqueue styles
-function ${themeName}_styles() {
-    wp_enqueue_style('${themeName}-style', get_stylesheet_uri());
-}
-add_action('wp_enqueue_scripts', '${themeName}_styles');
-?>`);
-
-        zip.file('header.php', `<!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo('charset'); ?>">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <?php wp_head(); ?>
-</head>
-<body <?php body_class(); ?>>
-<?php wp_body_open(); ?>
-<header id="masthead" class="site-header">
-    <div class="site-branding">
-        <h1 class="site-title"><a href="<?php echo esc_url(home_url('/')); ?>"><?php bloginfo('name'); ?></a></h1>
-        <p class="site-description"><?php bloginfo('description'); ?></p>
-    </div>
-</header>`);
-
-        zip.file('footer.php', `    <footer id="colophon" class="site-footer">
-        <div class="site-info">
-            <p>&copy; <?php echo date('Y'); ?> <?php bloginfo('name'); ?>. All rights reserved.</p>
-            <p>Theme converted by TailZen</p>
-        </div>
-    </footer>
-    <?php wp_footer(); ?>
-</body>
-</html>`);
+        // Use the actual converted files from our conversion service
+        if (conversionResult.convertedFiles) {
+          for (const [filename, content] of Object.entries(conversionResult.convertedFiles)) {
+            zip.file(filename, content);
+          }
+        }
 
         // Generate zip file
         const content = await zip.generateAsync({ type: 'blob' });
